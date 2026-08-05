@@ -1,57 +1,82 @@
-# Welcome to your Expo app 👋
+# ☀️ Solar Electricity Tracker
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A modern, universal rooftop solar monitoring and net-metering tracker app built for Indian homeowners. Powered by **React Native (Expo)**, **TypeScript**, and **Expo Router**.
 
-## Get started
+Designed with **Material Design 3** aesthetics featuring a Green, White, and Yellow solar theme, complete with dynamic data visualization, settings personalization, and dark mode support.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## 🚀 Key Features
 
-2. Start the app
+*   **🏠 Live Status Dashboard**: Real-time tracking of Today's Solar Generation (kWh), Current Solar Power (kW), Household Usage (kWh), Grid Imports, Grid Exports, and Net Energy balance.
+*   **📊 Performance History**: Daily hourly bell curves, monthly generation blocks, yearly analytics, and monthly savings tables.
+*   **🌱 Environmental & Savings Analytics**: Calculate lifetime financial returns, grid bill reduction percentages, carbon offsets (kg CO₂), and equivalent trees planted.
+*   **⚙️ Customized Local Settings**: Adjust solar plant capacity size (kW), grid import rates, grid export feed-in rates (₹/kWh), installation state policies, and toggle Light/Dark color themes.
+*   **📱 Universal Support**: Built for iOS, Android, and Web using responsive layout grids and native tab bars.
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## 📐 Indian Net Metering Calculations
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Under Indian DISCOM net metering guidelines, solar savings are computed dynamically across the app as follows:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+1.  **Self-Consumption**: 
+    $$\text{Self Consumption (kWh)} = \max(0, \text{Today's Generation} - \text{Grid Export})$$
+2.  **Financial Savings (Today)**:
+    $$\text{Today's Savings (₹)} = (\text{Self Consumption} \times \text{Import Tariff}) + (\text{Grid Export} \times \text{Export Tariff}) - (\text{Grid Import} \times \text{Import Tariff})$$
+3.  **Carbon Offset**:
+    $$\text{CO}_2 \text{ Reduced (kg)} = \text{Lifetime Generation (kWh)} \times 0.82 \text{ kg CO}_2/\text{kWh (India grid avg)}$$
+4.  **Trees Equivalent**:
+    $$\text{Trees Equivalent} = \frac{\text{CO}_2 \text{ Reduced (kg)}}{22 \text{ kg (avg annual absorption per tree)}}$$
 
-## Get a fresh project
+---
 
-When you're ready, run:
+## 📂 Project Structure
 
-```bash
-npm run reset-project
+```text
+solar-electricity-tracker/
+├── assets/                  # PNG icons and branding graphic templates
+├── src/
+│   ├── app/                 # Expo Router file-based pages
+│   │   ├── _layout.tsx      # Root layout wrapped with AppContextProvider
+│   │   ├── index.tsx        # Home Dashboard tab
+│   │   ├── history.tsx      # Daily/Monthly/Yearly charts and logs
+│   │   ├── savings.tsx      # Financial & Eco statistics
+│   │   └── settings.tsx     # DISCOM Tariffs & Capacity configuration
+│   ├── components/          # Reusable Material UI components
+│   │   ├── app-tabs.tsx     # Native bottom tab bar triggers
+│   │   ├── app-tabs.web.tsx # Custom web absolute navigation bar
+│   │   ├── stat-card.tsx    # Card displaying metric values & units
+│   │   ├── status-card.tsx  # Interactive live inverter status
+│   │   ├── summary-card.tsx # Visualized eco impact stats
+│   │   └── chart-card.tsx   # Native view-based area/bar charts
+│   ├── constants/
+│   │   └── theme.ts         # Colors (Light/Dark mode), Spacers, & Fonts
+│   └── context/
+│       └── AppContext.tsx   # Global state and simulation logic provider
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-### Other setup steps
+## ⚙️ Development Setup
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+### 1. Installation
+Clone the repository and install the dependencies:
+```bash
+npm install
+```
 
-## Learn more
+### 2. Running Locally
+Run the development packager:
 
-To learn more about developing your project with Expo, look at the following resources:
+*   **Start Packager**: `npx expo start`
+*   **Android (Emulator/Device)**: `npm run android`
+*   **iOS (Simulator/Device)**: `npm run ios`
+*   **Web Portal**: `npm run web`
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## 🎨 Theme & Typography
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-# solar-electricity-tracker
+*   **Colors**: Custom HSL tailored palettes with light/dark adaptive tokens. Focuses on **Deep Forest Green** (`#1B5E20`), **Solar Gold** (`#F5B041`), **Grid Blue** (`#1F618D`), and adaptive surface backgrounds.
+*   **Aesthetics**: Glassmorphic borders, soft Material Design 3 elevations, circular symbol containers, and card progress meters.
