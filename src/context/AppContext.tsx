@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type IndianState = 'Maharashtra' | 'Karnataka' | 'Goa' | 'Gujarat' | 'Tamil Nadu' | 'Delhi';
 
@@ -44,6 +45,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   themeMode: 'system',
 };
 
+const STORAGE_KEY = 'solar_electricity_settings';
+
 export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [data, setData] = useState<InverterDetails>({
@@ -62,15 +65,36 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     lastUpdated: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
   });
 
+  // Load settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          setSettings(JSON.parse(stored));
+        }
+      } catch (e) {
+        console.error('Failed to load settings from AsyncStorage:', e);
+      }
+    };
+    loadSettings();
+  }, []);
+
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch((e: any) => {
+        console.error('Failed to save settings to AsyncStorage:', e);
+      });
       return updated;
     });
   };
 
   const resetAllData = () => {
     setSettings(DEFAULT_SETTINGS);
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS)).catch((e: any) => {
+      console.error('Failed to reset settings in AsyncStorage:', e);
+    });
   };
 
   // Recalculate metrics whenever settings change
