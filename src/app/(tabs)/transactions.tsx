@@ -117,8 +117,8 @@ export default function TransactionsScreen() {
   };
 
   const flatData = groups.flatMap((group) => [
-    { type: 'header' as const, title: group.title, id: `header-${group.title}` },
-    ...group.data.map((txn) => ({ type: 'item' as const, ...txn })),
+    { rowType: 'header' as const, title: group.title, id: `header-${group.title}` },
+    ...group.data.map((txn) => ({ rowType: 'item' as const, ...txn })),
   ]);
 
   return (
@@ -166,7 +166,7 @@ export default function TransactionsScreen() {
         data={flatData}
         keyExtractor={(item) => ('id' in item && item.id ? item.id : `h-${(item as any).title}`)}
         renderItem={({ item }) => {
-          if (item.type === 'header') {
+          if (item.rowType === 'header') {
             return (
               <Text style={[styles.dateHeader, { color: colors.textSecondary }]}>
                 {item.title}

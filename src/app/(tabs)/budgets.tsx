@@ -57,7 +57,7 @@ export default function BudgetsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { paddingHorizontal: Spacing.lg, paddingTop: 60 },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: 60, paddingBottom: 110 },
 
   header: {
     flexDirection: 'row',

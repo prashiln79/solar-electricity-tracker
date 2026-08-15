@@ -90,7 +90,7 @@ export async function getFilteredTransactions(
   filter: TransactionFilter
 ): Promise<Transaction[]> {
   let query = `SELECT * FROM transactions WHERE user_id = ? AND status != ?`;
-  const params: unknown[] = [userId, TransactionStatus.DELETED];
+  const params: (string | number | null)[] = [userId, TransactionStatus.DELETED];
 
   if (filter.types && filter.types.length > 0) {
     const placeholders = filter.types.map(() => '?').join(',');
