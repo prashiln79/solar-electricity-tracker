@@ -1,407 +1,413 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, useColorScheme } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useForm, Controller } from 'react-hook-form';
-import { useEnergyStore } from '@/store/useEnergyStore';
+/**
+ * Add Transaction screen — form to create a new transaction.
+ * Accessible via the center FAB tab button.
+ */
+
+import { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+} from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Colors, Spacing, BottomTabInset, MaxContentWidth } from '@/constants/theme';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-interface AddReadingFormData {
-  date: string;
-  solarGenerated: string;
-  gridImport: string;
-  gridExport: string;
-  notes: string;
-}
+import { useThemeColors, Typography, Spacing, BorderRadius } from '@/theme';
+import { useTransactionStore } from '@/store/useTransactionStore';
+import { useCategoryStore } from '@/store/useCategoryStore';
+import { useAccountStore } from '@/store/useAccountStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import { TransactionType } from '@/types/enums';
+import type { CreateTransactionRequest, Category, Account } from '@/types/models';
 
-export default function AddReadingScreen() {
-  const router = useRouter();
+type TxnTypeTab = 'expense' | 'income' | 'transfer';
+
+export default function AddTransactionScreen() {
   const db = useSQLiteContext();
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
-  
-  const { addReading, readings } = useEnergyStore();
-  const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const router = useRouter();
+  const colors = useThemeColors();
 
-  // Default to today's date in YYYY-MM-DD
-  const todayStr = new Date().toLocaleDateString('sv-SE');
+  const user = useAuthStore((s) => s.user);
+  const addTransaction = useTransactionStore((s) => s.addTransaction);
+  const { expenseCategories, incomeCategories } = useCategoryStore();
+  const { accounts } = useAccountStore();
+  const { currencySymbol } = useSettingsStore();
 
-  const { control, handleSubmit, reset, watch, formState: { errors } } = useForm<AddReadingFormData>({
-    defaultValues: {
-      date: todayStr,
-      solarGenerated: '',
-      gridImport: '',
-      gridExport: '',
-      notes: '',
-    }
-  });
+  // Form state
+  const [type, setType] = useState<TxnTypeTab>('expense');
+  const [amount, setAmount] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [payee, setPayee] = useState('');
+  const [notes, setNotes] = useState('');
+  const [date, setDate] = useState(new Date());
+  const [showCategories, setShowCategories] = useState(false);
+  const [showAccounts, setShowAccounts] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Watch values to display real-time calculated house consumption estimate
-  const watchedSolar = watch('solarGenerated');
-  const watchedImport = watch('gridImport');
-  const watchedExport = watch('gridExport');
+  const categories = type === 'income' ? incomeCategories : expenseCategories;
 
-  const estimatedConsumption = React.useMemo(() => {
-    const s = parseFloat(watchedSolar) || 0;
-    const i = parseFloat(watchedImport) || 0;
-    const e = parseFloat(watchedExport) || 0;
-    return Math.max(0, s + i - e);
-  }, [watchedSolar, watchedImport, watchedExport]);
-
-  const onSubmit = async (data: AddReadingFormData) => {
-    setErrorMessage('');
-    setSuccessMessage('');
-
-    const solarVal = parseFloat(data.solarGenerated);
-    const importVal = parseFloat(data.gridImport);
-    const exportVal = parseFloat(data.gridExport);
-
-    // Simple extra sanity checks
-    if (solarVal < 0 || importVal < 0 || exportVal < 0) {
-      setErrorMessage('⚠️ Values cannot be negative.');
+  const handleSave = useCallback(async () => {
+    if (!amount || parseFloat(amount) <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid amount greater than 0.');
       return;
     }
-
-    // Check if reading for date already exists
-    const dateExists = readings.some((r) => r.date === data.date);
-    if (dateExists) {
-      setErrorMessage('⚠️ A reading for this date already exists. Edit the existing reading in the Analytics history log instead.');
+    if (!selectedCategory) {
+      Alert.alert('Select Category', 'Please select a category for this transaction.');
       return;
     }
+    if (!user?.uid) return;
 
+    setIsSaving(true);
     try {
-      await addReading(db, {
-        date: data.date,
-        solarGenerated: solarVal,
-        gridImport: importVal,
-        gridExport: exportVal,
-        notes: data.notes,
-      });
+      const request: CreateTransactionRequest = {
+        amount: parseFloat(amount),
+        type: type as TransactionType,
+        categoryId: selectedCategory.id!,
+        category: selectedCategory.name,
+        accountId: selectedAccount?.accountId,
+        payee: payee || undefined,
+        notes: notes || undefined,
+        date: date.getTime(),
+      };
 
-      setSuccessMessage('✅ Reading logged successfully!');
-      reset({
-        date: todayStr,
-        solarGenerated: '',
-        gridImport: '',
-        gridExport: '',
-        notes: '',
-      });
-      
-      // Redirect to Home dashboard after delay
-      setTimeout(() => {
-        setSuccessMessage('');
-        router.push('/(tabs)/home');
-      }, 1500);
-
-    } catch (e: any) {
-      console.error(e);
-      setErrorMessage(e.message || 'Failed to save reading. Please try again.');
+      await addTransaction(db, user.uid, request);
+      router.back();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save transaction. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
+  }, [amount, selectedCategory, selectedAccount, payee, notes, date, type, user?.uid, db]);
+
+  const typeConfig = {
+    expense: { color: colors.expense, bg: colors.expenseLight, icon: 'arrow-up-circle' as const },
+    income: { color: colors.income, bg: colors.incomeLight, icon: 'arrow-down-circle' as const },
+    transfer: { color: colors.transfer, bg: colors.transferLight, icon: 'swap-horizontal' as const },
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-          style={{ flex: 1, width: '100%' }}
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.background }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="close" size={28} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Add Transaction</Text>
+        <TouchableOpacity
+          onPress={handleSave}
+          disabled={isSaving}
+          style={[styles.saveButton, { backgroundColor: colors.primary, opacity: isSaving ? 0.6 : 1 }]}
         >
-          <ScrollView 
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent} 
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Header */}
-            <View style={styles.header}>
-              <ThemedText type="subtitle" style={styles.headerTitle}>
-                ➕ Add Reading
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                Manually record daily solar and grid metrics
-              </ThemedText>
-            </View>
+          <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
+        </TouchableOpacity>
+      </View>
 
-            {/* Error / Success Banners */}
-            {errorMessage !== '' && (
-              <View style={[styles.banner, { backgroundColor: colors.errorLight }]}>
-                <ThemedText type="smallBold" style={{ color: colors.error }}>{errorMessage}</ThemedText>
-              </View>
-            )}
-
-            {successMessage !== '' && (
-              <View style={[styles.banner, { backgroundColor: colors.primaryLight }]}>
-                <ThemedText type="smallBold" style={{ color: colors.primary }}>{successMessage}</ThemedText>
-              </View>
-            )}
-
-            {/* Form Fields */}
-            <ThemedView type="backgroundElement" style={styles.card}>
-              
-              {/* Date Input */}
-              <View style={styles.inputGroup}>
-                <ThemedText type="smallBold" themeColor="textSecondary">Date (YYYY-MM-DD)</ThemedText>
-                <Controller
-                  control={control}
-                  rules={{ 
-                    required: 'Date is required', 
-                    pattern: {
-                      value: /^\d{4}-\d{2}-\d{2}$/,
-                      message: 'Date must be in YYYY-MM-DD format'
-                    }
-                  }}
-                  name="date"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      style={[styles.input, { color: colors.text, borderColor: colors.textSecondary, backgroundColor: colors.background }]}
-                      onBlur={onBlur}
-                      onChangeText={onChange}
-                      value={value}
-                      placeholder="e.g. 2026-08-05"
-                      placeholderTextColor={colors.textSecondary}
-                    />
-                  )}
-                />
-                {errors.date && (
-                  <ThemedText type="code" style={{ color: colors.error }}>{errors.date.message}</ThemedText>
-                )}
-              </View>
-
-              {/* Solar Generated Input */}
-              <View style={styles.inputGroup}>
-                <ThemedText type="smallBold" themeColor="textSecondary">Solar Generated (kWh)</ThemedText>
-                <Controller
-                  control={control}
-                  rules={{ 
-                    required: 'Solar generation value is required',
-                    validate: val => !isNaN(parseFloat(val)) || 'Must be a valid number'
-                  }}
-                  name="solarGenerated"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      style={[styles.input, { color: colors.text, borderColor: colors.textSecondary, backgroundColor: colors.background }]}
-                      onBlur={onBlur}
-                      onChangeText={onChange}
-                      value={value}
-                      keyboardType="numeric"
-                      placeholder="e.g. 18.5"
-                      placeholderTextColor={colors.textSecondary}
-                    />
-                  )}
-                />
-                {errors.solarGenerated && (
-                  <ThemedText type="code" style={{ color: colors.error }}>{errors.solarGenerated.message}</ThemedText>
-                )}
-              </View>
-
-              {/* Grid Import Input */}
-              <View style={styles.inputGroup}>
-                <ThemedText type="smallBold" themeColor="textSecondary">Grid Import (kWh)</ThemedText>
-                <Controller
-                  control={control}
-                  rules={{ 
-                    required: 'Grid import value is required',
-                    validate: val => !isNaN(parseFloat(val)) || 'Must be a valid number'
-                  }}
-                  name="gridImport"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      style={[styles.input, { color: colors.text, borderColor: colors.textSecondary, backgroundColor: colors.background }]}
-                      onBlur={onBlur}
-                      onChangeText={onChange}
-                      value={value}
-                      keyboardType="numeric"
-                      placeholder="e.g. 4.2"
-                      placeholderTextColor={colors.textSecondary}
-                    />
-                  )}
-                />
-                {errors.gridImport && (
-                  <ThemedText type="code" style={{ color: colors.error }}>{errors.gridImport.message}</ThemedText>
-                )}
-              </View>
-
-              {/* Grid Export Input */}
-              <View style={styles.inputGroup}>
-                <ThemedText type="smallBold" themeColor="textSecondary">Grid Export (kWh)</ThemedText>
-                <Controller
-                  control={control}
-                  rules={{ 
-                    required: 'Grid export value is required',
-                    validate: val => !isNaN(parseFloat(val)) || 'Must be a valid number'
-                  }}
-                  name="gridExport"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      style={[styles.input, { color: colors.text, borderColor: colors.textSecondary, backgroundColor: colors.background }]}
-                      onBlur={onBlur}
-                      onChangeText={onChange}
-                      value={value}
-                      keyboardType="numeric"
-                      placeholder="e.g. 12.1"
-                      placeholderTextColor={colors.textSecondary}
-                    />
-                  )}
-                />
-                {errors.gridExport && (
-                  <ThemedText type="code" style={{ color: colors.error }}>{errors.gridExport.message}</ThemedText>
-                )}
-              </View>
-
-              {/* Notes Input */}
-              <View style={styles.inputGroup}>
-                <ThemedText type="smallBold" themeColor="textSecondary">Notes (Optional)</ThemedText>
-                <Controller
-                  control={control}
-                  name="notes"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      style={[styles.input, styles.notesInput, { color: colors.text, borderColor: colors.textSecondary, backgroundColor: colors.background }]}
-                      onBlur={onBlur}
-                      onChangeText={onChange}
-                      value={value}
-                      multiline
-                      numberOfLines={3}
-                      placeholder="e.g. Sunny day, ran AC in afternoon"
-                      placeholderTextColor={colors.textSecondary}
-                    />
-                  )}
-                />
-              </View>
-
-              {/* Automatic Calculation Preview banner */}
-              <View style={[styles.calcBanner, { backgroundColor: colors.infoLight }]}>
-                <Ionicons name="calculator-outline" size={18} color={colors.info} />
-                <View style={{ flex: 1 }}>
-                  <ThemedText type="code" style={{ color: colors.info, fontWeight: '700' }}>
-                    Calculated House Consumption Estimate:
-                  </ThemedText>
-                  <ThemedText type="subtitle" style={{ color: colors.info, fontSize: 20, marginTop: 2 }}>
-                    {estimatedConsumption.toFixed(1)} kWh
-                  </ThemedText>
-                  <ThemedText type="code" themeColor="textSecondary" style={{ fontSize: 10, marginTop: 2 }}>
-                    Formula: Solar Generated + Grid Import − Grid Export
-                  </ThemedText>
-                </View>
-              </View>
-            </ThemedView>
-
-            {/* Buttons */}
-            <View style={styles.btnRow}>
-              <Pressable 
-                style={[styles.btn, styles.cancelBtn, { borderColor: colors.textSecondary }]}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Type Selector */}
+        <View style={styles.typeRow}>
+          {(['expense', 'income', 'transfer'] as TxnTypeTab[]).map((t) => {
+            const isActive = type === t;
+            const config = typeConfig[t];
+            return (
+              <TouchableOpacity
+                key={t}
+                style={[
+                  styles.typeChip,
+                  { backgroundColor: isActive ? config.bg : colors.surfaceVariant },
+                ]}
                 onPress={() => {
-                  reset();
-                  router.push('/(tabs)/home');
+                  setType(t);
+                  setSelectedCategory(null);
                 }}
               >
-                <ThemedText type="smallBold" themeColor="textSecondary">Cancel</ThemedText>
-              </Pressable>
+                <Ionicons name={config.icon} size={18} color={isActive ? config.color : colors.textTertiary} />
+                <Text
+                  style={[
+                    styles.typeLabel,
+                    { color: isActive ? config.color : colors.textSecondary },
+                  ]}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-              <Pressable 
-                style={[styles.btn, styles.saveBtn, { backgroundColor: colors.primary }]}
-                onPress={handleSubmit(onSubmit)}
+        {/* Amount Input */}
+        <View style={styles.amountContainer}>
+          <Text style={[styles.currencySymbol, { color: typeConfig[type].color }]}>
+            {currencySymbol}
+          </Text>
+          <TextInput
+            style={[styles.amountInput, { color: colors.text }]}
+            value={amount}
+            onChangeText={setAmount}
+            placeholder="0"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="decimal-pad"
+            autoFocus
+          />
+        </View>
+
+        {/* Category Selector */}
+        <TouchableOpacity
+          style={[styles.fieldRow, { backgroundColor: colors.surface }]}
+          onPress={() => setShowCategories(!showCategories)}
+        >
+          <View style={styles.fieldIcon}>
+            <Text style={{ fontSize: 20 }}>{selectedCategory?.icon || '📦'}</Text>
+          </View>
+          <View style={styles.fieldContent}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Category</Text>
+            <Text style={[styles.fieldValue, { color: selectedCategory ? colors.text : colors.textTertiary }]}>
+              {selectedCategory?.name || 'Select category'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-down" size={20} color={colors.textTertiary} />
+        </TouchableOpacity>
+
+        {/* Category Grid (expandable) */}
+        {showCategories && (
+          <View style={[styles.categoryGrid, { backgroundColor: colors.surface }]}>
+            {categories.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
+                style={[
+                  styles.categoryItem,
+                  {
+                    backgroundColor: selectedCategory?.id === cat.id ? colors.primaryContainer : colors.surfaceVariant,
+                  },
+                ]}
+                onPress={() => {
+                  setSelectedCategory(cat);
+                  setShowCategories(false);
+                }}
               >
-                <ThemedText type="smallBold" style={{ color: '#ffffff' }}>Save Reading</ThemedText>
-              </Pressable>
-            </View>
+                <Text style={styles.categoryIcon}>{cat.icon}</Text>
+                <Text
+                  style={[styles.categoryName, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-            <View style={{ height: Spacing.four }} />
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ThemedView>
+        {/* Account Selector */}
+        {type !== 'transfer' && (
+          <TouchableOpacity
+            style={[styles.fieldRow, { backgroundColor: colors.surface }]}
+            onPress={() => setShowAccounts(!showAccounts)}
+          >
+            <View style={[styles.fieldIconSquare, { backgroundColor: colors.primaryContainer }]}>
+              <Ionicons name="wallet-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.fieldContent}>
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Account</Text>
+              <Text style={[styles.fieldValue, { color: selectedAccount ? colors.text : colors.textTertiary }]}>
+                {selectedAccount?.name || 'Select account (optional)'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={20} color={colors.textTertiary} />
+          </TouchableOpacity>
+        )}
+
+        {showAccounts && (
+          <View style={[styles.categoryGrid, { backgroundColor: colors.surface }]}>
+            {accounts.map((acc) => (
+              <TouchableOpacity
+                key={acc.accountId}
+                style={[
+                  styles.categoryItem,
+                  {
+                    backgroundColor: selectedAccount?.accountId === acc.accountId ? colors.primaryContainer : colors.surfaceVariant,
+                  },
+                ]}
+                onPress={() => {
+                  setSelectedAccount(acc);
+                  setShowAccounts(false);
+                }}
+              >
+                <Ionicons name="wallet" size={16} color={colors.primary} />
+                <Text style={[styles.categoryName, { color: colors.text }]} numberOfLines={1}>
+                  {acc.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {accounts.length === 0 && (
+              <Text style={[styles.emptyPicker, { color: colors.textTertiary }]}>
+                No accounts yet. Add one from the More tab.
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* Payee */}
+        <View style={[styles.fieldRow, { backgroundColor: colors.surface }]}>
+          <View style={[styles.fieldIconSquare, { backgroundColor: colors.accentContainer }]}>
+            <Ionicons name="person-outline" size={20} color={colors.accent} />
+          </View>
+          <View style={styles.fieldContent}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Payee</Text>
+            <TextInput
+              style={[styles.fieldInput, { color: colors.text }]}
+              value={payee}
+              onChangeText={setPayee}
+              placeholder="Who did you pay?"
+              placeholderTextColor={colors.textTertiary}
+            />
+          </View>
+        </View>
+
+        {/* Notes */}
+        <View style={[styles.fieldRow, { backgroundColor: colors.surface }]}>
+          <View style={[styles.fieldIconSquare, { backgroundColor: colors.warningLight }]}>
+            <Ionicons name="document-text-outline" size={20} color={colors.warning} />
+          </View>
+          <View style={styles.fieldContent}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Notes</Text>
+            <TextInput
+              style={[styles.fieldInput, { color: colors.text }]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Add a note"
+              placeholderTextColor={colors.textTertiary}
+              multiline
+            />
+          </View>
+        </View>
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-  },
-  scrollView: {
-    flex: 1,
-    width: '100%',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.three,
-    gap: Spacing.three,
-  },
+  container: { flex: 1 },
+
+  // Header
   header: {
-    marginBottom: Spacing.one,
-  },
-  headerTitle: {
-    fontWeight: '800',
-    fontSize: 32,
-    marginBottom: Spacing.one,
-  },
-  banner: {
-    padding: Spacing.three,
-    borderRadius: 12,
-    marginBottom: Spacing.one,
-  },
-  card: {
-    padding: Spacing.three,
-    borderRadius: 20,
-    gap: Spacing.three,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  inputGroup: {
-    gap: Spacing.one,
-  },
-  input: {
-    height: 48,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: Spacing.three,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  notesInput: {
-    height: 80,
-    paddingTop: Spacing.two,
-    textAlignVertical: 'top',
-  },
-  calcBanner: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: Spacing.three,
-    borderRadius: 12,
-    gap: Spacing.two,
-    marginTop: Spacing.one,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
-  btnRow: {
+  headerTitle: { ...Typography.titleLarge },
+  saveButton: {
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+  },
+  saveButtonText: {
+    ...Typography.labelMedium,
+    color: '#FFFFFF',
+  },
+
+  content: { paddingHorizontal: Spacing.lg },
+
+  // Type Selector
+  typeRow: {
     flexDirection: 'row',
-    gap: Spacing.three,
-    marginTop: Spacing.two,
+    gap: Spacing.sm,
+    marginBottom: Spacing.xxl,
   },
-  btn: {
+  typeChip: {
     flex: 1,
-    height: 50,
-    borderRadius: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  typeLabel: { ...Typography.labelMedium },
+
+  // Amount
+  amountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.xxxl,
+    paddingHorizontal: Spacing.xxl,
+  },
+  currencySymbol: {
+    fontSize: 36,
+    fontWeight: '700',
+    marginRight: Spacing.sm,
+  },
+  amountInput: {
+    fontSize: 48,
+    fontWeight: '700',
+    textAlign: 'center',
+    minWidth: 100,
+  },
+
+  // Field Rows
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+  },
+  fieldIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: Spacing.md,
   },
-  cancelBtn: {
-    borderWidth: 1.5,
+  fieldIconSquare: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.md,
   },
-  saveBtn: {
-    elevation: 2,
+  fieldContent: { flex: 1 },
+  fieldLabel: { ...Typography.labelSmall, marginBottom: 2 },
+  fieldValue: { ...Typography.bodyMedium },
+  fieldInput: { ...Typography.bodyMedium, padding: 0 },
+
+  // Category Grid
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+    marginTop: -Spacing.sm,
   },
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+  },
+  categoryIcon: { fontSize: 16 },
+  categoryName: { ...Typography.labelSmall, maxWidth: 80 },
+  emptyPicker: { ...Typography.bodySmall, padding: Spacing.md },
 });
