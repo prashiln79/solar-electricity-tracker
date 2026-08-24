@@ -38,6 +38,9 @@ export interface UserPreferences {
   hapticFeedback?: boolean;
   hasSeenWelcome?: boolean;
   captureLocationByDefault?: boolean;
+  openaiApiKey?: string;
+  geminiApiKey?: string;
+  yearlyBudget?: any;
 }
 
 export interface User {
@@ -288,6 +291,8 @@ export interface CreateTransactionRequest {
   settlementFromUserId?: string;
   settlementToUserId?: string;
   placeName?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
 }
 
 export interface TransactionFilter {

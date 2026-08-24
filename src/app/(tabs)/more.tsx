@@ -11,6 +11,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -124,6 +125,7 @@ export default function MoreScreen() {
           icon: 'family-restroom',
           iconColor: colors.transfer,
           iconBg: colors.transferLight,
+          onPress: () => router.push('/family' as any),
         },
       ],
     },
@@ -272,7 +274,7 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { paddingHorizontal: Spacing.lg, paddingTop: 60, paddingBottom: 110 },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: Platform.OS === 'ios' ? 120 : 100, paddingBottom: 110 },
 
   header: { marginBottom: Spacing.xl },
   title: { ...Typography.displaySmall },

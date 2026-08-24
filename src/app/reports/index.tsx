@@ -5,8 +5,9 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,7 +24,7 @@ export default function ReportsScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const { transactions, summary } = useTransactionStore();
-  const { currencySymbol } = useSettingsStore();
+  const { currencySymbol, isFamilyMode } = useSettingsStore();
 
   // Category breakdown calculation
   const categoryTotals = new Map<string, number>();
@@ -45,6 +46,14 @@ export default function ReportsScreen() {
     }))
     .sort((a, b) => b.amount - a.amount);
 
+  // Smart metrics calculations
+  const netSavings = summary.totalIncome - summary.totalExpense;
+  const savingsRate = summary.totalIncome > 0 
+    ? Math.max(0, Math.min(100, (netSavings / summary.totalIncome) * 100))
+    : 0;
+
+  const topCategory = categoryBreakdown.length > 0 ? categoryBreakdown[0] : null;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -52,11 +61,62 @@ export default function ReportsScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: colors.text }]}>Reports & Analytics</Text>
+        <View style={styles.titleContainer}>
+          <Text style={[styles.title, { color: colors.text }]}>Reports & Analytics</Text>
+          {isFamilyMode && (
+            <Text style={[styles.subtitle, { color: colors.primary }]}>Family Mode Active</Text>
+          )}
+        </View>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        
+        {/* Key Metrics Ledger Card Grid */}
+        <View style={styles.metricsGrid}>
+          {/* Card 1: Savings Rate */}
+          <View style={[styles.metricCard, { backgroundColor: colors.surface }]}>
+            <View style={[styles.metricIconBox, { backgroundColor: colors.primaryContainer }]}>
+              <Ionicons name="pie-chart-outline" size={18} color={colors.primary} />
+            </View>
+            <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Savings Rate</Text>
+            <Text style={[styles.metricValue, { color: colors.text }]}>
+              {savingsRate.toFixed(1)}%
+            </Text>
+            <Text style={[styles.metricMeta, { color: colors.textTertiary }]}>
+              of total income
+            </Text>
+          </View>
+
+          {/* Card 2: Top Category */}
+          <View style={[styles.metricCard, { backgroundColor: colors.surface }]}>
+            <View style={[styles.metricIconBox, { backgroundColor: colors.accentContainer }]}>
+              <Ionicons name="trending-down-outline" size={18} color={colors.accent} />
+            </View>
+            <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Top Category</Text>
+            <Text style={[styles.metricValue, { color: colors.text }]} numberOfLines={1}>
+              {topCategory ? topCategory.category : 'None'}
+            </Text>
+            <Text style={[styles.metricMeta, { color: colors.textTertiary }]}>
+              {topCategory ? formatCurrency(topCategory.amount, currencySymbol) : 'No expenses'}
+            </Text>
+          </View>
+
+          {/* Card 3: Net Savings */}
+          <View style={[styles.metricCard, { backgroundColor: colors.surface }]}>
+            <View style={[styles.metricIconBox, { backgroundColor: colors.primaryContainer }]}>
+              <Ionicons name="wallet-outline" size={18} color={colors.primary} />
+            </View>
+            <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Net Savings</Text>
+            <Text style={[styles.metricValue, { color: netSavings >= 0 ? colors.income : colors.expense }]}>
+              {formatCurrency(netSavings, currencySymbol)}
+            </Text>
+            <Text style={[styles.metricMeta, { color: colors.textTertiary }]}>
+              surplus this period
+            </Text>
+          </View>
+        </View>
+
         {/* Income vs Expense Overview */}
         <View style={[styles.overviewCard, { backgroundColor: colors.surface }]}>
           <Text style={[styles.cardTitle, { color: colors.textSecondary }]}>Financial Overview</Text>
@@ -118,13 +178,18 @@ export default function ReportsScreen() {
                   {formatCurrency(item.amount, currencySymbol)} ({item.percentage.toFixed(1)}%)
                 </Text>
               </View>
-              <View style={[styles.progressTrack, { backgroundColor: colors.surfaceVariant }]}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { backgroundColor: colors.primary, width: `${Math.min(item.percentage, 100)}%` },
-                  ]}
-                />
+              <View style={styles.progressContainer}>
+                <View style={[styles.progressBarBg, { backgroundColor: colors.surfaceVariant }]}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        backgroundColor: colors.primary,
+                        width: `${item.percentage}%`,
+                      },
+                    ]}
+                  />
+                </View>
               </View>
             </View>
           ))
@@ -135,8 +200,9 @@ export default function ReportsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-
+  container: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -144,62 +210,157 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
   },
-  title: { ...Typography.titleLarge },
-
-  content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
+  titleContainer: {
+    alignItems: 'center',
+  },
+  title: {
+    ...Typography.titleLarge,
+  },
+  subtitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  content: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 40,
+  },
+  
+  // Metrics Grid
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
+  },
+  metricCard: {
+    flex: 1,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  metricIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  metricLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  metricValue: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  metricMeta: {
+    fontSize: 9,
+    fontWeight: '500',
+    marginTop: 2,
+  },
 
   overviewCard: {
-    padding: Spacing.xl,
     borderRadius: BorderRadius.xl,
-    marginBottom: Spacing.xxl,
-  },
-  cardTitle: { ...Typography.labelMedium, marginBottom: Spacing.md },
-
-  barContainer: { marginBottom: Spacing.lg },
-  bar: {
-    height: 16,
-    borderRadius: 8,
-    flexDirection: 'row',
-    overflow: 'hidden',
-  },
-
-  legendRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  legendItem: { alignItems: 'center' },
-  dot: { width: 10, height: 10, borderRadius: 5, marginBottom: 4 },
-  legendLabel: { ...Typography.labelSmall, marginBottom: 2 },
-  legendValue: { ...Typography.titleMedium },
-
-  sectionTitle: {
-    ...Typography.labelMedium,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: Spacing.md,
-  },
-
-  catRow: {
     padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardTitle: {
+    ...Typography.titleSmall,
     marginBottom: Spacing.md,
+  },
+  barContainer: {
+    height: 16,
+    borderRadius: BorderRadius.full,
+    overflow: 'hidden',
+    marginBottom: Spacing.md,
+  },
+  bar: {
+    flexDirection: 'row',
+    height: '100%',
+    width: '100%',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.lg,
+  },
+  legendItem: {
+    flex: 1,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 6,
+  },
+  legendLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  legendValue: {
+    ...Typography.titleSmall,
+  },
+  sectionTitle: {
+    ...Typography.titleSmall,
+    marginBottom: Spacing.md,
+  },
+  catRow: {
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
   catInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: Spacing.xs,
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
   },
-  catName: { ...Typography.titleMedium },
-  catAmount: { ...Typography.bodySmall },
-
-  progressTrack: {
-    height: 8,
-    borderRadius: 4,
+  catName: {
+    ...Typography.titleSmall,
+  },
+  catAmount: {
+    ...Typography.bodySmall,
+  },
+  progressContainer: {
+    height: 6,
+    width: '100%',
+  },
+  progressBarBg: {
+    height: '100%',
+    width: '100%',
+    borderRadius: BorderRadius.full,
     overflow: 'hidden',
   },
-  progressFill: { height: '100%', borderRadius: 4 },
-
+  progressBarFill: {
+    height: '100%',
+    borderRadius: BorderRadius.full,
+  },
   emptyCard: {
-    padding: Spacing.xxl,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
+    padding: 32,
     alignItems: 'center',
   },
-  emptyText: { ...Typography.bodyMedium },
+  emptyText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
 });

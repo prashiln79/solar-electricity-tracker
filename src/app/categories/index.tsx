@@ -5,8 +5,8 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,6 +23,23 @@ export default function CategoriesScreen() {
   const [tab, setTab] = useState<Tab>('expense');
 
   const categories = tab === 'expense' ? expenseCategories : incomeCategories;
+
+  const sortedCategories = [...categories].sort((a, b) => {
+    const groupA = a.group || '';
+    const groupB = b.group || '';
+
+    // Grouped categories come first, ungrouped (individual) categories go to the bottom
+    if (groupA && !groupB) return -1;
+    if (!groupA && groupB) return 1;
+
+    // If both are grouped, sort by group name
+    if (groupA && groupB && groupA !== groupB) {
+      return groupA.localeCompare(groupB);
+    }
+
+    // Default to sorting by category name
+    return a.name.localeCompare(b.name);
+  });
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -63,7 +80,7 @@ export default function CategoriesScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.grid}>
-          {categories.map((cat: Category) => (
+          {sortedCategories.map((cat: Category) => (
             <View key={cat.id} style={[styles.card, { backgroundColor: colors.surface }]}>
               <View style={[styles.iconCircle, { backgroundColor: cat.color + '20' }]}>
                 <Text style={styles.icon}>{cat.icon}</Text>

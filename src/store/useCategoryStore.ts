@@ -7,6 +7,9 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Category } from '@/types/models';
 import * as categoryRepo from '@/database/repositories/categoryRepository';
 import { TransactionType } from '@/types/enums';
+import { pushToFirebase } from '@/services/syncService';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface CategoryState {
   categories: Category[];
@@ -51,7 +54,9 @@ export const useCategoryStore = create<CategoryState>((set, get) => ({
   loadCategories: async (db, userId) => {
     set({ isLoading: true, error: null });
     try {
-      const categories = await categoryRepo.getAllCategories(db, userId);
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      const categories = await categoryRepo.getAllCategories(db, userId, familyId);
       set({ categories, ...splitCategories(categories), isLoading: false });
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false });
@@ -63,6 +68,9 @@ export const useCategoryStore = create<CategoryState>((set, get) => ({
       const category = await categoryRepo.createCategory(db, userId, data);
       const categories = [...get().categories, category];
       set({ categories, ...splitCategories(categories) });
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      pushToFirebase(db, userId, familyId).catch(err => console.error("Sync error:", err));
       return category;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -77,6 +85,12 @@ export const useCategoryStore = create<CategoryState>((set, get) => ({
         const categories = get().categories.map((c) => (c.id === id ? updated : c));
         set({ categories, ...splitCategories(categories) });
       }
+      const activeUser = useAuthStore.getState().user;
+      if (activeUser?.uid) {
+        const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+        const familyId = isFamilyMode ? activeFamilyId : null;
+        pushToFirebase(db, activeUser.uid, familyId).catch(err => console.error("Sync error:", err));
+      }
       return updated;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -90,6 +104,12 @@ export const useCategoryStore = create<CategoryState>((set, get) => ({
       if (success) {
         const categories = get().categories.filter((c) => c.id !== id);
         set({ categories, ...splitCategories(categories) });
+      }
+      const activeUser = useAuthStore.getState().user;
+      if (activeUser?.uid) {
+        const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+        const familyId = isFamilyMode ? activeFamilyId : null;
+        pushToFirebase(db, activeUser.uid, familyId).catch(err => console.error("Sync error:", err));
       }
       return success;
     } catch (error) {

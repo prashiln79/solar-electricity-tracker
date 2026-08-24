@@ -31,12 +31,18 @@ function rowToCategory(row: Record<string, unknown>): Category {
 
 export async function getAllCategories(
   db: SQLiteDatabase,
-  userId: string
+  userId: string,
+  familyId?: string | null
 ): Promise<Category[]> {
-  const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM categories WHERE user_id = ? ORDER BY name ASC`,
-    [userId]
-  );
+  const rows = familyId
+    ? await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM categories WHERE user_id = ? AND family_id = ? ORDER BY name ASC`,
+        [userId, familyId]
+      )
+    : await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM categories WHERE user_id = ? AND (family_id = '' OR family_id IS NULL) ORDER BY name ASC`,
+        [userId]
+      );
   return rows.map(rowToCategory);
 }
 
