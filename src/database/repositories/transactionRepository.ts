@@ -62,12 +62,18 @@ function rowToTransaction(row: Record<string, unknown>): Transaction {
 /** Get all transactions for a user, ordered by date descending. */
 export async function getAllTransactions(
   db: SQLiteDatabase,
-  userId: string
+  userId: string,
+  familyId?: string | null
 ): Promise<Transaction[]> {
-  const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM transactions WHERE user_id = ? AND status != ? ORDER BY date DESC`,
-    [userId, TransactionStatus.DELETED]
-  );
+  const rows = familyId
+    ? await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM transactions WHERE user_id = ? AND family_id = ? AND status != ? ORDER BY date DESC`,
+        [userId, familyId, TransactionStatus.DELETED]
+      )
+    : await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM transactions WHERE user_id = ? AND (family_id = '' OR family_id IS NULL) AND status != ? ORDER BY date DESC`,
+        [userId, TransactionStatus.DELETED]
+      );
   return rows.map(rowToTransaction);
 }
 
@@ -147,11 +153,12 @@ export async function createTransaction(
     `INSERT INTO transactions (
       id, user_id, account_id, category_id, category, payee, amount, type, date,
       notes, status, tags, is_recurring, recurring_interval, recurring_end_date,
+      from_account_id, to_account_id,
       family_id, user_display_name, user_photo_url, split_data,
       tax_amount, tax_percentage, taxes,
       settlement_id, settlement_family_id, settlement_from_user_id, settlement_to_user_id,
       place_name, sync_status, created_at, updated_at, created_by, updated_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       userId,
@@ -168,6 +175,8 @@ export async function createTransaction(
       request.isRecurring ? 1 : 0,
       request.recurringInterval || null,
       request.recurringEndDate || null,
+      request.fromAccountId || null,
+      request.toAccountId || null,
       request.familyId || '',
       request.userDisplayName || null,
       request.userPhotoURL || null,
@@ -188,6 +197,21 @@ export async function createTransaction(
     ]
   );
 
+  // Update account balances based on transaction type and amount
+  if (request.accountId) {
+    const change = request.type === 'income' ? request.amount : -request.amount;
+    await db.runAsync(
+      `UPDATE accounts SET balance = balance + ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+      [change, SyncStatus.PENDING, now, request.accountId]
+    );
+  }
+  if (request.type === 'transfer' && request.toAccountId) {
+    await db.runAsync(
+      `UPDATE accounts SET balance = balance + ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+      [request.amount, SyncStatus.PENDING, now, request.toAccountId]
+    );
+  }
+
   const created = await getTransactionById(db, id);
   return created!;
 }
@@ -204,6 +228,22 @@ export async function updateTransaction(
 
   const now = Date.now();
 
+  // 1. Revert existing transaction balance effect
+  if (existing.accountId) {
+    const revertChange = existing.type === 'income' ? -existing.amount : existing.amount;
+    await db.runAsync(
+      `UPDATE accounts SET balance = balance + ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+      [revertChange, SyncStatus.PENDING, now, existing.accountId]
+    );
+  }
+  if (existing.type === 'transfer' && existing.toAccountId) {
+    await db.runAsync(
+      `UPDATE accounts SET balance = balance - ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+      [existing.amount, SyncStatus.PENDING, now, existing.toAccountId]
+    );
+  }
+
+  // 2. Perform the update in transactions table
   await db.runAsync(
     `UPDATE transactions SET
       account_id = COALESCE(?, account_id),
@@ -219,6 +259,8 @@ export async function updateTransaction(
       tax_amount = COALESCE(?, tax_amount),
       tax_percentage = COALESCE(?, tax_percentage),
       place_name = COALESCE(?, place_name),
+      from_account_id = CASE WHEN ? THEN ? ELSE from_account_id END,
+      to_account_id = CASE WHEN ? THEN ? ELSE to_account_id END,
       sync_status = ?,
       updated_at = ?,
       updated_by = ?
@@ -237,6 +279,10 @@ export async function updateTransaction(
       updates.taxAmount ?? null,
       updates.taxPercentage ?? null,
       updates.placeName ?? null,
+      updates.fromAccountId !== undefined ? 1 : 0,
+      updates.fromAccountId ?? null,
+      updates.toAccountId !== undefined ? 1 : 0,
+      updates.toAccountId ?? null,
       SyncStatus.PENDING,
       now,
       userId,
@@ -244,7 +290,25 @@ export async function updateTransaction(
     ]
   );
 
-  return getTransactionById(db, id);
+  // 3. Get updated transaction and apply new balance effect
+  const updated = await getTransactionById(db, id);
+  if (updated) {
+    if (updated.accountId) {
+      const newChange = updated.type === 'income' ? updated.amount : -updated.amount;
+      await db.runAsync(
+        `UPDATE accounts SET balance = balance + ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+        [newChange, SyncStatus.PENDING, now, updated.accountId]
+      );
+    }
+    if (updated.type === 'transfer' && updated.toAccountId) {
+      await db.runAsync(
+        `UPDATE accounts SET balance = balance + ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+        [updated.amount, SyncStatus.PENDING, now, updated.toAccountId]
+      );
+    }
+  }
+
+  return updated;
 }
 
 /** Soft-delete a transaction (set status to DELETED). */
@@ -253,9 +317,29 @@ export async function deleteTransaction(
   id: string,
   userId: string
 ): Promise<boolean> {
+  const existing = await getTransactionById(db, id);
+  if (!existing) return false;
+
+  const now = Date.now();
+
+  // Revert balance effect
+  if (existing.accountId) {
+    const revertChange = existing.type === 'income' ? -existing.amount : existing.amount;
+    await db.runAsync(
+      `UPDATE accounts SET balance = balance + ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+      [revertChange, SyncStatus.PENDING, now, existing.accountId]
+    );
+  }
+  if (existing.type === 'transfer' && existing.toAccountId) {
+    await db.runAsync(
+      `UPDATE accounts SET balance = balance - ?, sync_status = ?, updated_at = ? WHERE account_id = ?`,
+      [existing.amount, SyncStatus.PENDING, now, existing.toAccountId]
+    );
+  }
+
   const result = await db.runAsync(
     `UPDATE transactions SET status = ?, sync_status = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
-    [TransactionStatus.DELETED, SyncStatus.PENDING, Date.now(), userId, id]
+    [TransactionStatus.DELETED, SyncStatus.PENDING, now, userId, id]
   );
   return result.changes > 0;
 }

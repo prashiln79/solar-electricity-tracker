@@ -24,8 +24,6 @@ import { useAccountStore } from '@/store/useAccountStore';
 import { useTransactionStore } from '@/store/useTransactionStore';
 import {
   loginWithEmail,
-  loginWithGoogleNative,
-  loginWithGoogleFirebase,
 } from '@/services/authService';
 
 export default function SignInScreen() {
@@ -37,7 +35,6 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
 
   const loadUserDataFor = async (userId: string) => {
     try {
@@ -53,23 +50,7 @@ export default function SignInScreen() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setGoogleLoading(true);
-    try {
-      const user = await loginWithGoogleNative();
-      setUser(user);
-      await loadUserDataFor(user.uid);
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      console.warn('Google Sign In error:', error);
-      const fallbackUser = await loginWithGoogleFirebase();
-      setUser(fallbackUser);
-      await loadUserDataFor(fallbackUser.uid);
-      router.replace('/(tabs)');
-    } finally {
-      setGoogleLoading(false);
-    }
-  };
+
 
   const handleGuestSignIn = async () => {
     const guestUser = {
@@ -124,50 +105,6 @@ export default function SignInScreen() {
 
         {/* Actions Container */}
         <View style={styles.form}>
-          {/* Sign In with Google Button */}
-          <TouchableOpacity
-            style={[
-              styles.googleButton,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-              googleLoading && { opacity: 0.7 },
-            ]}
-            onPress={handleGoogleSignIn}
-            disabled={googleLoading}
-            activeOpacity={0.8}
-          >
-            {googleLoading ? (
-              <ActivityIndicator color={colors.primary} size="small" />
-            ) : (
-              <>
-                <View style={styles.googleIconCircle}>
-                  <Ionicons name="logo-google" size={20} color="#EA4335" />
-                </View>
-                <Text style={[styles.googleButtonText, { color: colors.text }]}>
-                  Sign in with Google
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Or Divider */}
-          <View style={styles.dividerRow}>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            <Text style={[styles.dividerText, { color: colors.textTertiary }]}>OR</Text>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          </View>
-
-          {/* Use Offline Button */}
-          <TouchableOpacity
-            style={[styles.offlineButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]}
-            onPress={handleGuestSignIn}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="wifi-outline" size={20} color={colors.textSecondary} />
-            <Text style={[styles.offlineButtonText, { color: colors.textSecondary }]}>
-              Use Offline
-            </Text>
-          </TouchableOpacity>
-
           {/* Email / Password section */}
           <View style={styles.emailSection}>
             <Input
@@ -196,6 +133,25 @@ export default function SignInScreen() {
               style={styles.signInButton}
             />
           </View>
+
+          {/* Or Divider */}
+          <View style={styles.dividerRow}>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <Text style={[styles.dividerText, { color: colors.textTertiary }]}>OR</Text>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          </View>
+
+          {/* Use Offline Button */}
+          <TouchableOpacity
+            style={[styles.offlineButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }, { marginBottom: 0 }]}
+            onPress={handleGuestSignIn}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="wifi-outline" size={20} color={colors.textSecondary} />
+            <Text style={[styles.offlineButtonText, { color: colors.textSecondary }]}>
+              Use Offline
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Trust Badges Footer */}
