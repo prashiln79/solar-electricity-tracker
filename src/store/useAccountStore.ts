@@ -6,6 +6,9 @@ import { create } from 'zustand';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Account, CreateAccountRequest, UpdateAccountRequest } from '@/types/models';
 import * as accountRepo from '@/database/repositories/accountRepository';
+import { pushToFirebase } from '@/services/syncService';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface AccountState {
   accounts: Account[];
@@ -31,8 +34,10 @@ export const useAccountStore = create<AccountState>((set, get) => ({
   loadAccounts: async (db, userId) => {
     set({ isLoading: true, error: null });
     try {
-      const accounts = await accountRepo.getAllAccounts(db, userId);
-      const totalBalance = await accountRepo.getTotalBalance(db, userId);
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      const accounts = await accountRepo.getAllAccounts(db, userId, familyId);
+      const totalBalance = await accountRepo.getTotalBalance(db, userId, familyId);
       set({ accounts, totalBalance, isLoading: false });
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false });
@@ -45,6 +50,9 @@ export const useAccountStore = create<AccountState>((set, get) => ({
       const accounts = [...get().accounts, account];
       const totalBalance = await accountRepo.getTotalBalance(db, userId);
       set({ accounts, totalBalance });
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      pushToFirebase(db, userId, familyId).catch(err => console.error("Sync error:", err));
       return account;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -60,6 +68,13 @@ export const useAccountStore = create<AccountState>((set, get) => ({
         const total = accounts.reduce((sum, a) => (a.isActive ? sum + a.balance : sum), 0);
         set({ accounts, totalBalance: total });
       }
+      // Note: we fetch the userId of the active user to sync
+      const activeUser = useAuthStore.getState().user;
+      if (activeUser?.uid) {
+        const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+        const familyId = isFamilyMode ? activeFamilyId : null;
+        pushToFirebase(db, activeUser.uid, familyId).catch(err => console.error("Sync error:", err));
+      }
       return updated;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -74,6 +89,12 @@ export const useAccountStore = create<AccountState>((set, get) => ({
         const accounts = get().accounts.filter((a) => a.accountId !== accountId);
         const total = accounts.reduce((sum, a) => (a.isActive ? sum + a.balance : sum), 0);
         set({ accounts, totalBalance: total });
+      }
+      const activeUser = useAuthStore.getState().user;
+      if (activeUser?.uid) {
+        const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+        const familyId = isFamilyMode ? activeFamilyId : null;
+        pushToFirebase(db, activeUser.uid, familyId).catch(err => console.error("Sync error:", err));
       }
       return success;
     } catch (error) {

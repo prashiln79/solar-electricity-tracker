@@ -8,6 +8,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Transaction, CreateTransactionRequest, TransactionFilter, TransactionSummary } from '@/types/models';
 import * as txnRepo from '@/database/repositories/transactionRepository';
 import { TransactionType } from '@/types/enums';
+import { pushToFirebase } from '@/services/syncService';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface TransactionState {
   transactions: Transaction[];
@@ -78,7 +80,9 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   loadTransactions: async (db, userId) => {
     set({ isLoading: true, error: null });
     try {
-      const transactions = await txnRepo.getAllTransactions(db, userId);
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      const transactions = await txnRepo.getAllTransactions(db, userId, familyId);
       set({ transactions, summary: computeSummary(transactions), isLoading: false });
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false });
@@ -90,6 +94,10 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       const txn = await txnRepo.createTransaction(db, userId, request);
       const transactions = [txn, ...get().transactions];
       set({ transactions, summary: computeSummary(transactions) });
+      
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      pushToFirebase(db, userId, familyId).catch(err => console.error("Sync error:", err));
       return txn;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -104,6 +112,9 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
         const transactions = get().transactions.map((t) => (t.id === id ? updated : t));
         set({ transactions, summary: computeSummary(transactions) });
       }
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      pushToFirebase(db, userId, familyId).catch(err => console.error("Sync error:", err));
       return updated;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -118,6 +129,9 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
         const transactions = get().transactions.filter((t) => t.id !== id);
         set({ transactions, summary: computeSummary(transactions) });
       }
+      const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+      const familyId = isFamilyMode ? activeFamilyId : null;
+      pushToFirebase(db, userId, familyId).catch(err => console.error("Sync error:", err));
       return success;
     } catch (error) {
       set({ error: (error as Error).message });
