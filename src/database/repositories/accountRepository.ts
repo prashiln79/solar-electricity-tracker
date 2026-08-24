@@ -32,12 +32,18 @@ function rowToAccount(row: Record<string, unknown>): Account {
 
 export async function getAllAccounts(
   db: SQLiteDatabase,
-  userId: string
+  userId: string,
+  familyId?: string | null
 ): Promise<Account[]> {
-  const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM accounts WHERE user_id = ? AND is_active = 1 ORDER BY name ASC`,
-    [userId]
-  );
+  const rows = familyId
+    ? await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM accounts WHERE user_id = ? AND family_id = ? AND is_active = 1 ORDER BY name ASC`,
+        [userId, familyId]
+      )
+    : await db.getAllAsync<Record<string, unknown>>(
+        `SELECT * FROM accounts WHERE user_id = ? AND (family_id = '' OR family_id IS NULL) AND is_active = 1 ORDER BY name ASC`,
+        [userId]
+      );
   return rows.map(rowToAccount);
 }
 
@@ -134,11 +140,17 @@ export async function updateAccountBalance(
 
 export async function getTotalBalance(
   db: SQLiteDatabase,
-  userId: string
+  userId: string,
+  familyId?: string | null
 ): Promise<number> {
-  const result = await db.getFirstAsync<{ total: number }>(
-    `SELECT COALESCE(SUM(balance), 0) as total FROM accounts WHERE user_id = ? AND is_active = 1`,
-    [userId]
-  );
+  const result = familyId
+    ? await db.getFirstAsync<{ total: number }>(
+        `SELECT COALESCE(SUM(balance), 0) as total FROM accounts WHERE user_id = ? AND family_id = ? AND is_active = 1`,
+        [userId, familyId]
+      )
+    : await db.getFirstAsync<{ total: number }>(
+        `SELECT COALESCE(SUM(balance), 0) as total FROM accounts WHERE user_id = ? AND (family_id = '' OR family_id IS NULL) AND is_active = 1`,
+        [userId]
+      );
   return result?.total ?? 0;
 }

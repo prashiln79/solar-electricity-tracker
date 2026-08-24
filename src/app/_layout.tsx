@@ -17,6 +17,7 @@ import { useTransactionStore } from '@/store/useTransactionStore';
 import { useAccountStore } from '@/store/useAccountStore';
 import { subscribeToAuthChanges } from '@/services/authService';
 import { APP_CONFIG } from '@/constants/config';
+import { syncWithFirebase } from '@/services/syncService';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -31,6 +32,12 @@ function AppInitializer() {
 
     async function loadUserData(userId: string) {
       try {
+        if (userId && userId !== 'local-user') {
+          const { isFamilyMode, activeFamilyId } = useSettingsStore.getState();
+          const familyId = isFamilyMode ? activeFamilyId : null;
+          await syncWithFirebase(db, userId, familyId);
+        }
+
         const categoryStore = useCategoryStore.getState();
         await categoryStore.loadCategories(db, userId);
         if (categoryStore.categories.length === 0) {

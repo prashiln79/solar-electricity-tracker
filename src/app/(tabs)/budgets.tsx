@@ -10,6 +10,7 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -57,7 +58,7 @@ export default function BudgetsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { paddingHorizontal: Spacing.lg, paddingTop: 60, paddingBottom: 110 },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: Platform.OS === 'ios' ? 120 : 100, paddingBottom: 110 },
 
   header: {
     flexDirection: 'row',
