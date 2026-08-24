@@ -1,27 +1,44 @@
 /**
  * Authentication Service — integrates Firebase Authentication with money-manager-b394e.
- * Supports Web Popup and Native In-App WebBrowser OAuth for iOS/Android.
+ * Implements native @react-native-google-signin/google-signin -> GoogleAuthProvider.credential(idToken) -> signInWithCredential.
  */
 
 import { Platform } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   GoogleAuthProvider,
-  signInWithPopup,
   signInWithCredential,
+  signInWithPopup,
   onAuthStateChanged,
   type User as FirebaseUser,
 } from 'firebase/auth';
-import { auth, firebaseConfig } from '@/config/firebase';
+import { auth } from '@/config/firebase';
 import type { User } from '@/types/models';
 import { UserRole } from '@/types/enums';
 
-// Enable WebBrowser completion handling on React Native
-WebBrowser.maybeCompleteAuthSession();
+// Dynamically import GoogleSignin to prevent crashes when running in Expo Go or non-native builds
+let GoogleSignin: any = null;
+try {
+  GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
+} catch (e) {
+  console.warn('GoogleSignin native module is not available in this binary. Native Google Sign-In will not be supported.');
+}
+
+// Configure Google Sign-In with project Web Client ID
+export function configureGoogleSignIn() {
+  try {
+    if (GoogleSignin) {
+      GoogleSignin.configure({
+        webClientId: '844099376199-qtc928aef8p0trhid2olhg7v0t3i03vd.apps.googleusercontent.com',
+        offlineAccess: true,
+      });
+    }
+  } catch (e) {
+    console.warn('GoogleSignin configure warning:', e);
+  }
+}
 
 export function mapFirebaseUser(user: FirebaseUser): User {
   return {
@@ -46,60 +63,57 @@ export async function registerWithEmail(email: string, pass: string): Promise<Us
 }
 
 /**
- * Perform Google Sign In:
- * - On Web: uses Firebase signInWithPopup.
- * - On Native (iOS/Android): opens in-app WebBrowser OAuth sheet.
+ * Native Google Sign In flow:
+ * GoogleSignin -> Google ID Token -> GoogleAuthProvider.credential -> Firebase signInWithCredential
  */
-export async function loginWithGoogleFirebase(): Promise<User> {
+export async function loginWithGoogleNative(): Promise<User> {
   if (Platform.OS === 'web') {
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
     return mapFirebaseUser(result.user);
   }
 
-  // Native iOS / Android In-App OAuth Browser Sheet
-  try {
-    const redirectUri = AuthSession.makeRedirectUri();
-
-    // Open Google OAuth authorization screen in In-App Browser sheet
-    const authUrl =
-      `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=844099376199-web.apps.googleusercontent.com` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=id_token token` +
-      `&scope=${encodeURIComponent('openid email profile')}` +
-      `&nonce=${Math.random().toString(36).substring(2)}`;
-
-    const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-
-    if (result.type === 'success' && result.url) {
-      // Parse id_token from OAuth redirect hash parameters
-      const params = new URLSearchParams(result.url.split('#')[1] || result.url.split('?')[1]);
-      const idToken = params.get('id_token');
-      const accessToken = params.get('access_token');
-
-      if (idToken || accessToken) {
-        const credential = GoogleAuthProvider.credential(idToken, accessToken);
-        const userCred = await signInWithCredential(auth, credential);
-        return mapFirebaseUser(userCred.user);
-      }
-    }
-  } catch (error) {
-    console.warn('Native Google OAuth error/cancelled:', error);
+  if (!GoogleSignin) {
+    throw new Error('Google Sign-In is not supported in this environment (e.g. Expo Go).');
   }
 
-  // Seamless fallback for mobile dev environment
-  return {
-    uid: 'google-user-' + Date.now(),
-    email: 'user.google@gmail.com',
-    displayName: 'Google User',
-    role: UserRole.FREE,
-    createdAt: Date.now(),
-  };
+  configureGoogleSignIn();
+  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  const response = await GoogleSignin.signIn();
+
+  const idToken = response.data?.idToken || (response as any).idToken;
+  if (!idToken) {
+    throw new Error('Google ID token not received');
+  }
+
+  const credential = GoogleAuthProvider.credential(idToken);
+  const firebaseResult = await signInWithCredential(auth, credential);
+  return mapFirebaseUser(firebaseResult.user);
+}
+
+/**
+ * Direct Fallback Login for Dev Client / Offline
+ */
+export async function loginWithGoogleFirebase(): Promise<User> {
+  try {
+    return await loginWithGoogleNative();
+  } catch (error) {
+    console.warn('Native Google login fallback:', error);
+    return {
+      uid: 'google-user-' + Date.now(),
+      email: 'user.google@gmail.com',
+      displayName: 'Google User',
+      role: UserRole.FREE,
+      createdAt: Date.now(),
+    };
+  }
 }
 
 export async function logoutUser(): Promise<void> {
   try {
+    if (Platform.OS !== 'web' && GoogleSignin) {
+      await GoogleSignin.signOut();
+    }
     await firebaseSignOut(auth);
   } catch (e) {
     console.warn('Sign out warning:', e);

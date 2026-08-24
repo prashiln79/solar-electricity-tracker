@@ -1,5 +1,5 @@
 /**
- * Root layout — initializes SQLite, loads stores, applies theme.
+ * Root layout — initializes SQLite, subscribes to Firebase Auth, loads stores.
  * Money Manager app entry point.
  */
 
@@ -15,49 +15,56 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useCategoryStore } from '@/store/useCategoryStore';
 import { useTransactionStore } from '@/store/useTransactionStore';
 import { useAccountStore } from '@/store/useAccountStore';
+import { subscribeToAuthChanges } from '@/services/authService';
 import { APP_CONFIG } from '@/constants/config';
-import { Colors } from '@/theme/colors';
 
 SplashScreen.preventAutoHideAsync();
 
-/** Offline guest user ID (used when no Firebase auth is set up yet). */
 const GUEST_USER_ID = 'local-user';
 
 function AppInitializer() {
   const db = useSQLiteContext();
   const setUser = useAuthStore((s) => s.setUser);
-  const colorScheme = useSettingsStore((s) => s.colorScheme);
 
   useEffect(() => {
-    async function init() {
+    let isMounted = true;
+
+    async function loadUserData(userId: string) {
       try {
-        // For Phase 1, use a local offline guest user.
-        // Firebase auth will be integrated in Phase 2.
-        setUser({
-          uid: GUEST_USER_ID,
-          email: 'guest@local',
-          role: 'free' as any,
-          createdAt: Date.now(),
-          displayName: 'Guest User',
-        });
-
-        // Seed default categories if empty
         const categoryStore = useCategoryStore.getState();
-        await categoryStore.loadCategories(db, GUEST_USER_ID);
+        await categoryStore.loadCategories(db, userId);
         if (categoryStore.categories.length === 0) {
-          await categoryStore.seedDefaults(db, GUEST_USER_ID);
+          await categoryStore.seedDefaults(db, userId);
         }
-
-        // Load accounts and transactions
-        await useAccountStore.getState().loadAccounts(db, GUEST_USER_ID);
-        await useTransactionStore.getState().loadTransactions(db, GUEST_USER_ID);
+        await useAccountStore.getState().loadAccounts(db, userId);
+        await useTransactionStore.getState().loadTransactions(db, userId);
       } catch (e) {
-        console.error('Failed to initialize app:', e);
-      } finally {
-        await SplashScreen.hideAsync();
+        console.error('Failed to load user data:', e);
       }
     }
-    init();
+
+    // Subscribe to real-time Firebase Auth state changes
+    const unsubscribe = subscribeToAuthChanges((fbUser) => {
+      if (!isMounted) return;
+
+      const activeUser = fbUser || {
+        uid: GUEST_USER_ID,
+        email: 'guest@local',
+        role: 'free' as any,
+        createdAt: Date.now(),
+        displayName: 'Guest User',
+      };
+
+      setUser(activeUser);
+      loadUserData(activeUser.uid).finally(() => {
+        SplashScreen.hideAsync();
+      });
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [db]);
 
   return <Slot />;

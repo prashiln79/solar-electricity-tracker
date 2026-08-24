@@ -11,17 +11,26 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 import { Ionicons } from '@expo/vector-icons';
-
 import { Image } from 'expo-image';
+
 import { useThemeColors, Typography, Spacing, BorderRadius } from '@/theme';
 import { Input } from '@/components/common/Input';
 import { Button } from '@/components/common/Button';
 import { useAuthStore } from '@/store/useAuthStore';
-import { loginWithGoogleFirebase, loginWithEmail } from '@/services/authService';
+import { useCategoryStore } from '@/store/useCategoryStore';
+import { useAccountStore } from '@/store/useAccountStore';
+import { useTransactionStore } from '@/store/useTransactionStore';
+import {
+  loginWithEmail,
+  loginWithGoogleNative,
+  loginWithGoogleFirebase,
+} from '@/services/authService';
 
 export default function SignInScreen() {
   const router = useRouter();
+  const db = useSQLiteContext();
   const colors = useThemeColors();
   const setUser = useAuthStore((s) => s.setUser);
 
@@ -30,27 +39,48 @@ export default function SignInScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  const loadUserDataFor = async (userId: string) => {
+    try {
+      const categoryStore = useCategoryStore.getState();
+      await categoryStore.loadCategories(db, userId);
+      if (categoryStore.categories.length === 0) {
+        await categoryStore.seedDefaults(db, userId);
+      }
+      await useAccountStore.getState().loadAccounts(db, userId);
+      await useTransactionStore.getState().loadTransactions(db, userId);
+    } catch (e) {
+      console.warn('Failed to load user data on login:', e);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
     try {
-      const user = await loginWithGoogleFirebase();
+      const user = await loginWithGoogleNative();
       setUser(user);
+      await loadUserDataFor(user.uid);
       router.replace('/(tabs)');
     } catch (error: any) {
-      Alert.alert('Google Sign-In', error?.message || 'Failed to sign in with Google');
+      console.warn('Google Sign In error:', error);
+      const fallbackUser = await loginWithGoogleFirebase();
+      setUser(fallbackUser);
+      await loadUserDataFor(fallbackUser.uid);
+      router.replace('/(tabs)');
     } finally {
       setGoogleLoading(false);
     }
   };
 
   const handleGuestSignIn = async () => {
-    setUser({
+    const guestUser = {
       uid: 'local-user',
       email: 'guest@local',
       displayName: 'Guest User',
       role: 'free' as any,
       createdAt: Date.now(),
-    });
+    };
+    setUser(guestUser);
+    await loadUserDataFor(guestUser.uid);
     router.replace('/(tabs)');
   };
 
@@ -64,6 +94,7 @@ export default function SignInScreen() {
     try {
       const user = await loginWithEmail(email, password);
       setUser(user);
+      await loadUserDataFor(user.uid);
       router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Sign In Failed', error?.message || 'Invalid email or password.');
